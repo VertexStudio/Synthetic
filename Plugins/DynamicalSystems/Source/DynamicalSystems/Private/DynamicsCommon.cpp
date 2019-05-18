@@ -66,3 +66,122 @@ FVector UDynamicsCommon::CubicBezier(float Time, FVector P0, FVector P1, FVector
     return P0 * FMath::Pow(1.f - Time, 3.f) + P1 * 3.f * Time * FMath::Pow(1.f - Time, 2.f) +
            P2 * 3.f * FMath::Pow(Time, 2.f) * (1.f - Time) + P3 * FMath::Pow(Time, 3.f);
 }
+
+bool UDynamicsCommon::CalcMinimumBoundingBox(USceneCaptureComponent2D *RenderComponent, const FQuat& Rotation, FVector Origin, FVector Extent, FBox2D &BoxOut)
+{
+    bool isCompletelyInView = true;
+    UTextureRenderTarget2D *RenderTexture = RenderComponent->TextureTarget;
+    FRenderTarget *RenderTarget = RenderTexture->GameThread_GetRenderTargetResource();
+    TArray<FVector> Points; 
+    TArray<FVector2D> Points2D;
+    FTransform const Transform(Rotation);
+    FMinimalViewInfo Info;
+
+    Info.Location = RenderComponent->GetComponentTransform().GetLocation();
+    Info.Rotation = RenderComponent->GetComponentTransform().GetRotation().Rotator();
+    Info.FOV = RenderComponent->FOVAngle;
+    Info.ProjectionMode = RenderComponent->ProjectionType;
+    Info.AspectRatio = float(RenderTexture->SizeX) / float(RenderTexture->SizeY);
+    Info.OrthoNearClipPlane = 1;
+    Info.OrthoFarClipPlane = 1000;
+    Info.bConstrainAspectRatio = true;
+
+    Points.Add(Origin + Transform.TransformPosition(FVector(Extent.X, Extent.Y, Extent.Z)));
+    Points.Add(Origin + Transform.TransformPosition(FVector(-Extent.X, Extent.Y, Extent.Z)));
+    Points.Add(Origin + Transform.TransformPosition(FVector(Extent.X, -Extent.Y, Extent.Z)));
+    Points.Add(Origin + Transform.TransformPosition(FVector(-Extent.X, -Extent.Y, Extent.Z)));
+    Points.Add(Origin + Transform.TransformPosition(FVector(Extent.X, Extent.Y, -Extent.Z)));
+    Points.Add(Origin + Transform.TransformPosition(FVector(-Extent.X, Extent.Y, -Extent.Z)));
+    Points.Add(Origin + Transform.TransformPosition(FVector(Extent.X, -Extent.Y, -Extent.Z)));
+    Points.Add(Origin + Transform.TransformPosition(FVector(-Extent.X, -Extent.Y, -Extent.Z)));
+
+    FVector2D MinPixel(RenderTexture->SizeX, RenderTexture->SizeY);
+    FVector2D MaxPixel(0, 0);
+    FIntRect ScreenRect(0, 0, RenderTexture->SizeX, RenderTexture->SizeY);
+
+    FSceneViewProjectionData ProjectionData;
+    ProjectionData.ViewOrigin = Info.Location;
+
+    ProjectionData.ViewRotationMatrix = FInverseRotationMatrix(Info.Rotation) * FMatrix(FPlane(0, 0, 1, 0), FPlane(1, 0, 0, 0), FPlane(0, 1, 0, 0), FPlane(0, 0, 0, 1));
+
+    if (RenderComponent->bUseCustomProjectionMatrix == true)
+    {
+        ProjectionData.ProjectionMatrix = RenderComponent->CustomProjectionMatrix;
+    }
+    else
+    {
+        ProjectionData.ProjectionMatrix = Info.CalculateProjectionMatrix();
+    }
+
+    ProjectionData.SetConstrainedViewRectangle(ScreenRect);
+
+    for (FVector &Point : Points)
+    {
+        FVector2D Pixel(0, 0);
+        FSceneView::ProjectWorldToScreen((Point), ScreenRect, ProjectionData.ComputeViewProjectionMatrix(), Pixel);
+        Points2D.Add(Pixel);
+        MaxPixel.X = FMath::Max(Pixel.X, MaxPixel.X);
+        MaxPixel.Y = FMath::Max(Pixel.Y, MaxPixel.Y);
+        MinPixel.X = FMath::Min(Pixel.X, MinPixel.X);
+        MinPixel.Y = FMath::Min(Pixel.Y, MinPixel.Y);
+    }
+
+    BoxOut = FBox2D(MinPixel, MaxPixel);
+    if (BoxOut.Min.X < 0)
+    {
+        BoxOut.Min.X = 0;
+        isCompletelyInView = false;
+    }
+    else if (BoxOut.Min.X > RenderTexture->SizeX)
+    {
+        BoxOut.Min.X = RenderTexture->SizeX;
+        isCompletelyInView = false;
+    }
+    if (BoxOut.Min.Y < 0)
+    {
+        BoxOut.Min.Y = 0;
+        isCompletelyInView = false;
+    }
+    else if (BoxOut.Min.Y > RenderTexture->SizeY)
+    {
+        BoxOut.Min.Y = RenderTexture->SizeY;
+        isCompletelyInView = false;
+    }
+    if (BoxOut.Max.X > RenderTexture->SizeX)
+    {
+        BoxOut.Max.X = RenderTexture->SizeX;
+        isCompletelyInView = false;
+    }
+    else if (BoxOut.Max.X < 0)
+    {
+        BoxOut.Max.X = 0;
+        isCompletelyInView = false;
+    }
+    if (BoxOut.Max.Y > RenderTexture->SizeY)
+    {
+        BoxOut.Max.Y = RenderTexture->SizeY;
+        isCompletelyInView = false;
+    }
+    else if (BoxOut.Max.Y < 0)
+    {
+        BoxOut.Max.Y = 0;
+        isCompletelyInView = false;
+    }
+    return isCompletelyInView;
+}
+
+bool UDynamicsCommon::ReadTxt(FString FilePath, FString FileName, FString &OutputTxt)
+{
+    FPaths::NormalizeDirectoryName(FilePath);
+    FString full_path =  FilePath + "/" + FileName;
+    FPaths::RemoveDuplicateSlashes(full_path);
+    return FFileHelper::LoadFileToString(OutputTxt, *full_path);
+}
+
+bool UDynamicsCommon::WriteTxt(FString inText, FString FilePath, FString FileName)
+{
+    FPaths::NormalizeDirectoryName(FilePath);
+    FString full_path =  FilePath + "/" + FileName;
+    FPaths::RemoveDuplicateSlashes(full_path);
+    return FFileHelper::SaveStringToFile(inText, *full_path);
+}

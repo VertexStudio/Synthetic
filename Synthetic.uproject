@@ -1,0 +1,13 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "{00046517-08D6-AE27-1424-773C8A4DC05A}",
+	"Category": "",
+	"Description": "",
+	"Modules": [
+		{
+			"Name": "Synthetic",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	]
+}

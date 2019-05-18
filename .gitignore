@@ -74,10 +74,14 @@ Plugins/*/Intermediate/*
 # Cache files for the editor to use
 DerivedDataCache/*
 
+# Default directory to save synthetic_data
+synthetic_data
+
+/Content/Environments
+
 /.vscode
 /*.code-workspace
 /Makefile
-/Content/Environments
 *.pri
 *.pro
 .idea

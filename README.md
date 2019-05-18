@@ -40,6 +40,7 @@ Generate project files and build
 
 ```
 cd $UE4_SYNTHETIC
+git lfs pull
 ./generate.sh
 ./build.sh
 ```

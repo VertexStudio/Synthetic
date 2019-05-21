@@ -67,11 +67,10 @@ FVector UDynamicsCommon::CubicBezier(float Time, FVector P0, FVector P1, FVector
            P2 * 3.f * FMath::Pow(Time, 2.f) * (1.f - Time) + P3 * FMath::Pow(Time, 3.f);
 }
 
-bool UDynamicsCommon::CalcMinimumBoundingBox(USceneCaptureComponent2D *RenderComponent, const FQuat& Rotation, FVector Origin, FVector Extent, FBox2D &BoxOut)
+bool UDynamicsCommon::CalcMinimumBoundingBox(USceneCaptureComponent2D *RenderComponent, const FQuat& Rotation, FVector Origin, FVector Extent, FBox2D &BoxOut, bool &Truncated)
 {
     bool isCompletelyInView = true;
     UTextureRenderTarget2D *RenderTexture = RenderComponent->TextureTarget;
-    FRenderTarget *RenderTarget = RenderTexture->GameThread_GetRenderTargetResource();
     TArray<FVector> Points; 
     TArray<FVector2D> Points2D;
     FTransform const Transform(Rotation);
@@ -102,17 +101,14 @@ bool UDynamicsCommon::CalcMinimumBoundingBox(USceneCaptureComponent2D *RenderCom
     FSceneViewProjectionData ProjectionData;
     ProjectionData.ViewOrigin = Info.Location;
 
-    ProjectionData.ViewRotationMatrix = FInverseRotationMatrix(Info.Rotation) * FMatrix(FPlane(0, 0, 1, 0), FPlane(1, 0, 0, 0), FPlane(0, 1, 0, 0), FPlane(0, 0, 0, 1));
+    ProjectionData.ViewRotationMatrix = FInverseRotationMatrix(Info.Rotation) * 
+                                                                                FMatrix(
+                                                                                        FPlane(0, 0, 1, 0),
+                                                                                        FPlane(1, 0, 0, 0),
+                                                                                        FPlane(0, 1, 0, 0),
+                                                                                        FPlane(0, 0, 0, 1));
 
-    if (RenderComponent->bUseCustomProjectionMatrix == true)
-    {
-        ProjectionData.ProjectionMatrix = RenderComponent->CustomProjectionMatrix;
-    }
-    else
-    {
-        ProjectionData.ProjectionMatrix = Info.CalculateProjectionMatrix();
-    }
-
+    ProjectionData.ProjectionMatrix = Info.CalculateProjectionMatrix();
     ProjectionData.SetConstrainedViewRectangle(ScreenRect);
 
     for (FVector &Point : Points)
@@ -167,7 +163,15 @@ bool UDynamicsCommon::CalcMinimumBoundingBox(USceneCaptureComponent2D *RenderCom
         BoxOut.Max.Y = 0;
         isCompletelyInView = false;
     }
-    return isCompletelyInView;
+
+    Truncated = !isCompletelyInView;
+
+    if (BoxOut.GetSize().X < 5 || BoxOut.GetSize().Y < 5)
+    {
+        return false;
+    }
+
+    return true;
 }
 
 bool UDynamicsCommon::ReadTxt(FString FilePath, FString FileName, FString &OutputTxt)

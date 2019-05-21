@@ -36,7 +36,7 @@ class DYNAMICALSYSTEMS_API UDynamicsCommon : public UBlueprintFunctionLibrary
     static FVector CubicBezier(float Time, FVector P0, FVector P1, FVector P2, FVector P3);
 
     UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Math|Vector")
-    static bool CalcMinimumBoundingBox(USceneCaptureComponent2D *RenderComponent, const FQuat& Rotation, FVector Origin, FVector Extend, FBox2D &BoxOut);
+    static bool CalcMinimumBoundingBox(USceneCaptureComponent2D *RenderComponent, const FQuat& Rotation, FVector Origin, FVector Extend, FBox2D &BoxOut, bool &Truncated);
 
     UFUNCTION(BlueprintPure, Category = "File", meta = (Keywords = "ReadTxt"))
     static bool ReadTxt(FString FilePath, FString FileName, FString &OutputTxt);

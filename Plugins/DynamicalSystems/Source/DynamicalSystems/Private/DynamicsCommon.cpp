@@ -189,3 +189,39 @@ bool UDynamicsCommon::WriteTxt(FString inText, FString FilePath, FString FileNam
     FPaths::RemoveDuplicateSlashes(full_path);
     return FFileHelper::SaveStringToFile(inText, *full_path);
 }
+
+bool UDynamicsCommon::FilterOccludedObjects(AActor* objectToDetect)
+{   
+
+    
+
+    return false;
+    // Check if Bp_Weapons class
+    // If so... Check occlussion
+        // if not occluded, add to array.
+    // if not Get all child actors
+        // Look for Bp_weapons class
+            // Check Occlussion
+                // if not, add to array.
+                
+    /*ULocalPlayer* LocalPlayer = objectToDetect->GetWorld()->GetFirstPlayerController()
+         if (LocalPlayer != nullptr && LocalPlayer->ViewportClient != nullptr && LocalPlayer->ViewportClient->Viewport)
+         {
+             FSceneViewFamilyContext ViewFamily(FSceneViewFamily::ConstructionValues(
+                 LocalPlayer->ViewportClient->Viewport,
+                 objectToDetect->GetWorld()->Scene,
+                 LocalPlayer->ViewportClient->EngineShowFlags)
+                 .SetRealtimeUpdate(true));
+     
+             FVector ViewLocation;
+             FRotator ViewRotation;
+             FSceneView* SceneView = LocalPlayer->CalcSceneView(&ViewFamily, ViewLocation, ViewRotation, LocalPlayer->ViewportClient->Viewport);
+             if (SceneView != nullptr)
+             {
+                 return SceneView->ViewFrustum.IntersectSphere(
+                             objectToDetect->GetActorLocation(), objectToDetect->GetSimpleCollisionRadius());
+             }             
+         }
+     
+         return false;*/ 
+}

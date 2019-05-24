@@ -6,6 +6,11 @@
 #include "Engine/TextureRenderTarget2D.h"
 #include "SceneView.h"
 #include "Misc/FileHelper.h"
+#include "Components/SkinnedMeshComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Engine/SkeletalMesh.h"
+#include "SkeletalRenderPublic.h"
+#include "DrawDebugHelpers.h"
 #include "DynamicsCommon.generated.h"
 
 /**
@@ -36,7 +41,7 @@ class DYNAMICALSYSTEMS_API UDynamicsCommon : public UBlueprintFunctionLibrary
     static FVector CubicBezier(float Time, FVector P0, FVector P1, FVector P2, FVector P3);
 
     UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Math|Vector")
-    static bool CalcMinimumBoundingBox(USceneCaptureComponent2D *RenderComponent, const FQuat& Rotation, FVector Origin, FVector Extend, FBox2D &BoxOut, bool &Truncated);
+    static bool CalcMinimumBoundingBox(const AActor* Actor, USceneCaptureComponent2D *RenderComponent, FBox2D &BoxOut, bool &Truncated);
 
     UFUNCTION(BlueprintPure, Category = "File", meta = (Keywords = "ReadTxt"))
     static bool ReadTxt(FString FilePath, FString FileName, FString &OutputTxt);

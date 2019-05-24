@@ -67,13 +67,12 @@ FVector UDynamicsCommon::CubicBezier(float Time, FVector P0, FVector P1, FVector
            P2 * 3.f * FMath::Pow(Time, 2.f) * (1.f - Time) + P3 * FMath::Pow(Time, 3.f);
 }
 
-bool UDynamicsCommon::CalcMinimumBoundingBox(USceneCaptureComponent2D *RenderComponent, const FQuat& Rotation, FVector Origin, FVector Extent, FBox2D &BoxOut, bool &Truncated)
+bool UDynamicsCommon::CalcMinimumBoundingBox(const AActor* Actor, USceneCaptureComponent2D *RenderComponent, FBox2D &BoxOut, bool &Truncated)
 {
     bool isCompletelyInView = true;
     UTextureRenderTarget2D *RenderTexture = RenderComponent->TextureTarget;
     TArray<FVector> Points; 
     TArray<FVector2D> Points2D;
-    FTransform const Transform(Rotation);
     FMinimalViewInfo Info;
 
     Info.Location = RenderComponent->GetComponentTransform().GetLocation();
@@ -85,14 +84,16 @@ bool UDynamicsCommon::CalcMinimumBoundingBox(USceneCaptureComponent2D *RenderCom
     Info.OrthoFarClipPlane = 1000;
     Info.bConstrainAspectRatio = true;
 
-    Points.Add(Origin + Transform.TransformPosition(FVector(Extent.X, Extent.Y, Extent.Z)));
-    Points.Add(Origin + Transform.TransformPosition(FVector(-Extent.X, Extent.Y, Extent.Z)));
-    Points.Add(Origin + Transform.TransformPosition(FVector(Extent.X, -Extent.Y, Extent.Z)));
-    Points.Add(Origin + Transform.TransformPosition(FVector(-Extent.X, -Extent.Y, Extent.Z)));
-    Points.Add(Origin + Transform.TransformPosition(FVector(Extent.X, Extent.Y, -Extent.Z)));
-    Points.Add(Origin + Transform.TransformPosition(FVector(-Extent.X, Extent.Y, -Extent.Z)));
-    Points.Add(Origin + Transform.TransformPosition(FVector(Extent.X, -Extent.Y, -Extent.Z)));
-    Points.Add(Origin + Transform.TransformPosition(FVector(-Extent.X, -Extent.Y, -Extent.Z)));
+    USkinnedMeshComponent *Mesh = Actor->FindComponentByClass<USkinnedMeshComponent>();
+    TArray<FFinalSkinVertex> OutVertices;
+    Mesh->GetCPUSkinnedVertices(OutVertices, 0);
+
+    FTransform const MeshWorldTransform = Actor->GetRootComponent()->GetComponentTransform();
+
+    for (FFinalSkinVertex &Vertex : OutVertices)
+    {
+        Points.Add(MeshWorldTransform.TransformPosition(Vertex.Position));
+    }
 
     FVector2D MinPixel(RenderTexture->SizeX, RenderTexture->SizeY);
     FVector2D MaxPixel(0, 0);
@@ -115,11 +116,14 @@ bool UDynamicsCommon::CalcMinimumBoundingBox(USceneCaptureComponent2D *RenderCom
     {
         FVector2D Pixel(0, 0);
         FSceneView::ProjectWorldToScreen((Point), ScreenRect, ProjectionData.ComputeViewProjectionMatrix(), Pixel);
-        Points2D.Add(Pixel);
-        MaxPixel.X = FMath::Max(Pixel.X, MaxPixel.X);
-        MaxPixel.Y = FMath::Max(Pixel.Y, MaxPixel.Y);
-        MinPixel.X = FMath::Min(Pixel.X, MinPixel.X);
-        MinPixel.Y = FMath::Min(Pixel.Y, MinPixel.Y);
+        if (Pixel.X >= (RenderTexture->SizeX * -0.01) && Pixel.X <= (RenderTexture->SizeX + RenderTexture->SizeX * 0.01) && Pixel.Y >= (RenderTexture->SizeY * -0.01) && Pixel.Y <= (RenderTexture->SizeY + RenderTexture->SizeY * 0.01))
+        {
+            Points2D.Add(Pixel);
+            MaxPixel.X = FMath::Max(Pixel.X, MaxPixel.X);
+            MaxPixel.Y = FMath::Max(Pixel.Y, MaxPixel.Y);
+            MinPixel.X = FMath::Min(Pixel.X, MinPixel.X);
+            MinPixel.Y = FMath::Min(Pixel.Y, MinPixel.Y);
+        }
     }
 
     BoxOut = FBox2D(MinPixel, MaxPixel);

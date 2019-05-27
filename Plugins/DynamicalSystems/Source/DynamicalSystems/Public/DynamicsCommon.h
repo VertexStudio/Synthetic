@@ -7,10 +7,8 @@
 #include "SceneView.h"
 #include "Misc/FileHelper.h"
 #include "Components/SkinnedMeshComponent.h"
-#include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "SkeletalRenderPublic.h"
-#include "DrawDebugHelpers.h"
 #include "DynamicsCommon.generated.h"
 
 /**

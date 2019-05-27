@@ -85,16 +85,49 @@ bool UDynamicsCommon::CalcMinimumBoundingBox(const AActor* Actor, USceneCaptureC
     Info.bConstrainAspectRatio = true;
 
     USkinnedMeshComponent *Mesh = Actor->FindComponentByClass<USkinnedMeshComponent>();
-    TArray<FFinalSkinVertex> OutVertices;
-    Mesh->GetCPUSkinnedVertices(OutVertices, 0);
 
-    FTransform const MeshWorldTransform = Actor->GetRootComponent()->GetComponentTransform();
-
-    for (FFinalSkinVertex &Vertex : OutVertices)
+    // Skinned Mesh
+    if (Mesh)
     {
-        Points.Add(MeshWorldTransform.TransformPosition(Vertex.Position));
-    }
+        TArray<FFinalSkinVertex> OutVertices;
+        Mesh->GetCPUSkinnedVertices(OutVertices, 0);
 
+        FTransform const MeshWorldTransform = Actor->GetRootComponent()->GetComponentTransform();
+
+        for (FFinalSkinVertex &Vertex : OutVertices)
+        {
+            Points.Add(MeshWorldTransform.TransformPosition(Vertex.Position));
+        }
+    } else {
+        UStaticMeshComponent *StaticMeshComponent = Actor->FindComponentByClass<UStaticMeshComponent>();
+
+        // Static Mesh
+        if (StaticMeshComponent)
+        {
+            if (!StaticMeshComponent) return false;
+            if (!StaticMeshComponent->GetStaticMesh()) return false;
+            if (!StaticMeshComponent->GetStaticMesh()->RenderData) return false;
+            if (StaticMeshComponent->GetStaticMesh()->RenderData->LODResources.Num() > 0)
+            {
+                FPositionVertexBuffer* VertexBuffer = &StaticMeshComponent->GetStaticMesh()->RenderData->LODResources[0].VertexBuffers.PositionVertexBuffer;
+                if (VertexBuffer)
+                {
+                    const int32 VertexCount = VertexBuffer->GetNumVertices();
+                    for (int32 Index = 0; Index < VertexCount; Index++)
+                    {
+                        Points.Add(Actor->GetActorLocation() + Actor->GetTransform().TransformVector(VertexBuffer->VertexPosition(Index)));
+                    }
+                } else
+                {
+                    return false;
+                }     
+            }
+        } else
+        {
+            return false;
+        }
+    }
+    
     FVector2D MinPixel(RenderTexture->SizeX, RenderTexture->SizeY);
     FVector2D MaxPixel(0, 0);
     FIntRect ScreenRect(0, 0, RenderTexture->SizeX, RenderTexture->SizeY);

@@ -1,4 +1,6 @@
 #include "DynamicsCommon.h"
+#include "DetectableActor.h"
+#include "XmlParser/Public/XmlFile.h"
 
 float UDynamicsCommon::MeanOfFloatArray(const TArray<float> &Samples)
 {
@@ -67,11 +69,104 @@ FVector UDynamicsCommon::CubicBezier(float Time, FVector P0, FVector P1, FVector
            P2 * 3.f * FMath::Pow(Time, 2.f) * (1.f - Time) + P3 * FMath::Pow(Time, 3.f);
 }
 
-bool UDynamicsCommon::CalcMinimumBoundingBox(const AActor* Actor, USceneCaptureComponent2D *RenderComponent, FBox2D &BoxOut, bool &Truncated)
+bool UDynamicsCommon::ProjectWorldToScreen(const FVector& WorldPosition, const FIntRect& ViewRect, const FMatrix& ViewProjectionMatrix, FVector& out_ScreenPos)
+{
+	FPlane Result = ViewProjectionMatrix.TransformFVector4(FVector4(WorldPosition, 1.f));
+	if ( Result.W > 0.0f )
+	{
+		// the result of this will be x and y coords in -1..1 projection space
+		const float RHW = 1.0f / Result.W;
+		FPlane PosInScreenSpace = FPlane(Result.X * RHW, Result.Y * RHW, Result.Z * RHW, Result.W);
+
+		// Move from projection space to normalized 0..1 UI space
+		const float NormalizedX = ( PosInScreenSpace.X / 2.f ) + 0.5f;
+		const float NormalizedY = 1.f - ( PosInScreenSpace.Y / 2.f ) - 0.5f;
+
+		FVector RayStartViewRectSpace(
+			( NormalizedX * (float)ViewRect.Width() ),
+			( NormalizedY * (float)ViewRect.Height() ),
+            PosInScreenSpace.Z
+			);
+
+		out_ScreenPos = RayStartViewRectSpace + FVector(static_cast<float>(ViewRect.Min.X), static_cast<float>(ViewRect.Min.Y), 0);
+
+		return true;
+	}
+	return false;
+}
+
+bool UDynamicsCommon::SaveLabelingFormat(USceneCaptureComponent2D *RenderComponent, EExportFormat Format, FString FilePath, FString FileName)
+{
+    uint32 imgWidth = RenderComponent->TextureTarget->SizeX;
+    uint32 imgHeight = RenderComponent->TextureTarget->SizeY;
+    TArray<TTuple<FBox2D, float>> Objects;
+    FString formatOutput;
+
+    const FString XmlPath = FPaths::Combine(FilePath, FileName + ".xml");
+    const FString ImagePath = FPaths::Combine(FilePath, FileName + ".png");
+
+    FXmlFile *Xml = new FXmlFile("<annotation></annotation>", EConstructMethod::ConstructFromBuffer);
+    FXmlNode *XmlRoot = Xml->GetRootNode();
+    XmlRoot->AppendChildNode(TEXT("folder"), TEXT("Unspecified"));
+    XmlRoot->AppendChildNode(TEXT("filename"), FileName);
+    XmlRoot->AppendChildNode(TEXT("path"), FilePath);
+    XmlRoot->AppendChildNode(TEXT("source"), TEXT(""));
+    FXmlNode *XmlSource = XmlRoot->FindChildNode(TEXT("source"));
+    XmlSource->AppendChildNode(TEXT("database"), TEXT("Unknown"));
+    XmlRoot->AppendChildNode(TEXT("size"), TEXT(""));
+    FXmlNode *XmlSize = XmlRoot->FindChildNode(TEXT("size"));
+    XmlSize->AppendChildNode(TEXT("width"), FString::FromInt(imgWidth));
+    XmlSize->AppendChildNode(TEXT("height"), FString::FromInt(imgHeight));
+    XmlSize->AppendChildNode(TEXT("depth"), TEXT("3"));
+    XmlRoot->AppendChildNode(TEXT("segmented"), TEXT("0"));
+
+    for (TActorIterator<AActor> ActorItr(RenderComponent->GetWorld()); ActorItr; ++ActorItr)
+    {
+       UDetectableActor *Actor = ActorItr->FindComponentByClass<UDetectableActor>();
+
+       if (Actor)
+       {
+           USkinnedMeshComponent *Mesh = ActorItr->FindComponentByClass<USkinnedMeshComponent>();
+           
+           bool Occluded = !ActorItr->WasRecentlyRendered(0.2f);
+           
+           FBox2D BoxOut;
+           bool Truncated;
+           bool IsValid;
+           bool IsInCameraView = CalcMinimumBoundingBox(*ActorItr, RenderComponent, BoxOut, Truncated, IsValid);
+
+           if (IsValid)
+           {
+               Objects.Add(MakeTuple(BoxOut, 5.0f));
+
+               Actor->Occluded = static_cast<int>(Occluded);
+
+               float cx = ((BoxOut.Min.X + BoxOut.Max.X) / 2) / imgWidth;
+               float cy = ((BoxOut.Min.Y + BoxOut.Max.Y) / 2) / imgHeight;
+               float w = (BoxOut.Max.X - BoxOut.Min.X) / imgWidth;
+               float h = (BoxOut.Max.Y - BoxOut.Min.Y) / imgHeight;
+
+               // YOLOv3 Format: {CLASS} {CX} {CY} {W} {H}, normalized [0,1]
+               formatOutput += Actor->ClassName + " " +  FString::SanitizeFloat(cx) + " " + FString::SanitizeFloat(cy) + " "
+                                + FString::SanitizeFloat(w) + " " + FString::SanitizeFloat(h) + "\n";
+           }
+       }
+    }
+
+    RenderComponent->CaptureScene();
+    UKismetRenderingLibrary::ExportRenderTarget(RenderComponent->GetWorld(), RenderComponent->TextureTarget, FilePath, FileName + ".png");
+    WriteTxt(formatOutput, FilePath, FileName + ".txt");
+
+    // UE_LOG(LogTemp, Warning, TEXT("objects length ====> %i"), Objects.Num());
+    return true;
+}
+
+bool UDynamicsCommon::CalcMinimumBoundingBox(const AActor* Actor, USceneCaptureComponent2D *RenderComponent, FBox2D &BoxOut, bool &Truncated, bool &Valid)
 {
     bool isCompletelyInView = true;
+    Valid = true;
     UTextureRenderTarget2D *RenderTexture = RenderComponent->TextureTarget;
-    TArray<FVector> Points; 
+    TArray<FVector> Points;
     TArray<FVector2D> Points2D;
     FMinimalViewInfo Info;
 
@@ -83,7 +178,7 @@ bool UDynamicsCommon::CalcMinimumBoundingBox(const AActor* Actor, USceneCaptureC
     Info.OrthoNearClipPlane = 1;
     Info.OrthoFarClipPlane = 1000;
     Info.bConstrainAspectRatio = true;
-
+    
     USkinnedMeshComponent *Mesh = Actor->FindComponentByClass<USkinnedMeshComponent>();
 
     // Skinned Mesh
@@ -99,35 +194,50 @@ bool UDynamicsCommon::CalcMinimumBoundingBox(const AActor* Actor, USceneCaptureC
             Points.Add(MeshWorldTransform.TransformPosition(Vertex.Position));
         }
     } else {
+        Valid = false;
+
         UStaticMeshComponent *StaticMeshComponent = Actor->FindComponentByClass<UStaticMeshComponent>();
 
         // Static Mesh
         if (StaticMeshComponent)
         {
-            if (!StaticMeshComponent) return false;
-            if (!StaticMeshComponent->GetStaticMesh()) return false;
-            if (!StaticMeshComponent->GetStaticMesh()->RenderData) return false;
+            if (!StaticMeshComponent) { Valid = false; };
+            if (!StaticMeshComponent->GetStaticMesh()) { Valid = false; };
+            if (!StaticMeshComponent->GetStaticMesh()->RenderData) { Valid = false; };
             if (StaticMeshComponent->GetStaticMesh()->RenderData->LODResources.Num() > 0)
             {
                 FPositionVertexBuffer* VertexBuffer = &StaticMeshComponent->GetStaticMesh()->RenderData->LODResources[0].VertexBuffers.PositionVertexBuffer;
                 if (VertexBuffer)
                 {
+                    FTransform const MeshWorldTransform = Actor->GetRootComponent()->GetComponentTransform();
+
                     const int32 VertexCount = VertexBuffer->GetNumVertices();
+                    
+                    if (VertexCount > 0)
+                    {
+                        Valid = true;
+                    }
+                    
                     for (int32 Index = 0; Index < VertexCount; Index++)
                     {
-                        Points.Add(Actor->GetActorLocation() + Actor->GetTransform().TransformVector(VertexBuffer->VertexPosition(Index)));
+                        Points.Add(MeshWorldTransform.TransformPosition(VertexBuffer->VertexPosition(Index)));
                     }
                 } else
                 {
-                    return false;
+                    Valid = false;
                 }     
             }
         } else
         {
-            return false;
+            Valid = false;
         }
     }
-    
+
+    if (!Valid)
+    {
+        return false;
+    }
+
     FVector2D MinPixel(RenderTexture->SizeX, RenderTexture->SizeY);
     FVector2D MaxPixel(0, 0);
     FIntRect ScreenRect(0, 0, RenderTexture->SizeX, RenderTexture->SizeY);
@@ -147,11 +257,11 @@ bool UDynamicsCommon::CalcMinimumBoundingBox(const AActor* Actor, USceneCaptureC
 
     for (FVector &Point : Points)
     {
-        FVector2D Pixel(0, 0);
-        FSceneView::ProjectWorldToScreen((Point), ScreenRect, ProjectionData.ComputeViewProjectionMatrix(), Pixel);
+        FVector Pixel(0, 0, 0);
+        ProjectWorldToScreen((Point), ScreenRect, ProjectionData.ComputeViewProjectionMatrix(), Pixel);
         if (Pixel.X >= (RenderTexture->SizeX * -0.01) && Pixel.X <= (RenderTexture->SizeX + RenderTexture->SizeX * 0.01) && Pixel.Y >= (RenderTexture->SizeY * -0.01) && Pixel.Y <= (RenderTexture->SizeY + RenderTexture->SizeY * 0.01))
         {
-            Points2D.Add(Pixel);
+            Points2D.Add(FVector2D(Pixel.X, Pixel.Y));
             MaxPixel.X = FMath::Max(Pixel.X, MaxPixel.X);
             MaxPixel.Y = FMath::Max(Pixel.Y, MaxPixel.Y);
             MinPixel.X = FMath::Min(Pixel.X, MinPixel.X);

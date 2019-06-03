@@ -46,4 +46,8 @@ class DYNAMICALSYSTEMS_API UDynamicsCommon : public UBlueprintFunctionLibrary
 
     UFUNCTION(BlueprintCallable, Category = "File", meta = (Keywords = "WriteTxt"))
     static bool WriteTxt(FString inText, FString FilePath, FString FileName);
+
+    UFUNCTION(BlueprintCallable, BlueprintPure, Category ="Misc", meta = (Keywords = "FilterOccludedObjects"))
+    static bool FilterOccludedObjects(AActor* objectToDetect);
+    
 };

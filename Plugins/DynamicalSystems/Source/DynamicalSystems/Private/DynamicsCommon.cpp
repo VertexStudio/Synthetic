@@ -100,13 +100,14 @@ bool UDynamicsCommon::SaveLabelingFormat(USceneCaptureComponent2D *RenderCompone
     uint32 imgWidth = RenderComponent->TextureTarget->SizeX;
     uint32 imgHeight = RenderComponent->TextureTarget->SizeY;
     TArray<TTuple<FBox2D, float>> Objects;
-    FString formatOutput;
+    FString yoloOutput;
 
     const FString XmlPath = FPaths::Combine(FilePath, FileName + ".xml");
     const FString ImagePath = FPaths::Combine(FilePath, FileName + ".png");
 
     FXmlFile *Xml = new FXmlFile("<annotation></annotation>", EConstructMethod::ConstructFromBuffer);
     FXmlNode *XmlRoot = Xml->GetRootNode();
+
     XmlRoot->AppendChildNode(TEXT("folder"), TEXT("Unspecified"));
     XmlRoot->AppendChildNode(TEXT("filename"), FileName);
     XmlRoot->AppendChildNode(TEXT("path"), FilePath);
@@ -120,6 +121,8 @@ bool UDynamicsCommon::SaveLabelingFormat(USceneCaptureComponent2D *RenderCompone
     XmlSize->AppendChildNode(TEXT("depth"), TEXT("3"));
     XmlRoot->AppendChildNode(TEXT("segmented"), TEXT("0"));
 
+    FXmlNode *XmlNext = XmlRoot->FindChildNode(TEXT("segmented"));
+
     for (TActorIterator<AActor> ActorItr(RenderComponent->GetWorld()); ActorItr; ++ActorItr)
     {
        UDetectableActor *Actor = ActorItr->FindComponentByClass<UDetectableActor>();
@@ -128,14 +131,14 @@ bool UDynamicsCommon::SaveLabelingFormat(USceneCaptureComponent2D *RenderCompone
        {
            USkinnedMeshComponent *Mesh = ActorItr->FindComponentByClass<USkinnedMeshComponent>();
            
-           bool Occluded = !ActorItr->WasRecentlyRendered(0.2f);
+           bool Occluded = !ActorItr->WasRecentlyRendered(0.01f);
            
            FBox2D BoxOut;
            bool Truncated;
            bool IsValid;
            bool IsInCameraView = CalcMinimumBoundingBox(*ActorItr, RenderComponent, BoxOut, Truncated, IsValid);
 
-           if (IsValid)
+           if (IsValid && IsInCameraView)
            {
                Objects.Add(MakeTuple(BoxOut, 5.0f));
 
@@ -145,20 +148,56 @@ bool UDynamicsCommon::SaveLabelingFormat(USceneCaptureComponent2D *RenderCompone
                float cy = ((BoxOut.Min.Y + BoxOut.Max.Y) / 2) / imgHeight;
                float w = (BoxOut.Max.X - BoxOut.Min.X) / imgWidth;
                float h = (BoxOut.Max.Y - BoxOut.Min.Y) / imgHeight;
-
-               // YOLOv3 Format: {CLASS} {CX} {CY} {W} {H}, normalized [0,1]
-               formatOutput += Actor->ClassName + " " +  FString::SanitizeFloat(cx) + " " + FString::SanitizeFloat(cy) + " "
+               
+            //    UE_LOG(LogTemp, Error, TEXT("%s is occluded? %i"), *ActorItr->GetName(), Occluded);
+            //    if (Occluded)
+            //    {
+            //        UE_LOG(LogTemp, Error, TEXT("Extra check"));
+            //    }
+               
+               if (Format == EExportFormat::VE_YOLO)
+               {
+                   // YOLOv3 Format: {CLASS} {CX} {CY} {W} {H}, normalized [0,1]
+                   yoloOutput += Actor->ClassName + " " +  FString::SanitizeFloat(cx) + " " + FString::SanitizeFloat(cy) + " "
                                 + FString::SanitizeFloat(w) + " " + FString::SanitizeFloat(h) + "\n";
+               } else if(Format == EExportFormat::VE_PASCAL_VOC) {
+                   XmlRoot->AppendChildNode(TEXT("object"), "");
+                   XmlNext = (FXmlNode *)XmlNext->GetNextNode();
+                   XmlNext->AppendChildNode(TEXT("name"), ActorItr->GetName());
+                   XmlNext->AppendChildNode(TEXT("pose"), TEXT("Unknown"));
+                   XmlNext->AppendChildNode(TEXT("truncated"), Truncated ? TEXT("1") : TEXT("0"));
+                   XmlNext->AppendChildNode(TEXT("difficult"), TEXT("0"));
+                   XmlNext->AppendChildNode(TEXT("occluded"), TEXT("0"));
+                   XmlNext->AppendChildNode(TEXT("bndbox"), TEXT(""));
+                   FXmlNode *XmlBox = XmlNext->FindChildNode(TEXT("bndbox"));
+                   XmlBox->AppendChildNode(TEXT("xmin"), FString::Printf(TEXT("%f"), BoxOut.Min.X));
+                   XmlBox->AppendChildNode(TEXT("xmax"), FString::Printf(TEXT("%f"), BoxOut.Max.X));
+                   XmlBox->AppendChildNode(TEXT("ymin"), FString::Printf(TEXT("%f"), BoxOut.Min.Y));
+                   XmlBox->AppendChildNode(TEXT("ymax"), FString::Printf(TEXT("%f"), BoxOut.Max.Y));
+               }
            }
        }
     }
 
     RenderComponent->CaptureScene();
     UKismetRenderingLibrary::ExportRenderTarget(RenderComponent->GetWorld(), RenderComponent->TextureTarget, FilePath, FileName + ".png");
-    WriteTxt(formatOutput, FilePath, FileName + ".txt");
+    
+    if (Format == EExportFormat::VE_YOLO)
+    {
+        return WriteTxt(yoloOutput, FilePath, FileName + ".txt");
+    } else
+    {
+        if (!Xml->Save(XmlPath))
+        {
+            UE_LOG(LogTemp, Error, TEXT("%s couldn't be saved at %s"), *FileName, *FilePath );
+            return false;
+        }
+        delete Xml;
+        return true;
+    }
 
-    // UE_LOG(LogTemp, Warning, TEXT("objects length ====> %i"), Objects.Num());
-    return true;
+    UE_LOG(LogTemp, Error, TEXT("%s couldn't be saved at %s"), *FileName, *FilePath );
+    return false;
 }
 
 bool UDynamicsCommon::CalcMinimumBoundingBox(const AActor* Actor, USceneCaptureComponent2D *RenderComponent, FBox2D &BoxOut, bool &Truncated, bool &Valid)

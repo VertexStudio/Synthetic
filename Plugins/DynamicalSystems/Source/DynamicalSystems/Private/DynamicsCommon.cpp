@@ -107,13 +107,16 @@ bool UDynamicsCommon::SaveLabelingFormat(USceneCaptureComponent2D *RenderCompone
            bool IsOccluded;
            bool IsTruncated;
            bool IsValid;
-           bool IsInCameraView = CalcMinimumBoundingBox(*ActorItr, RenderComponent, BoxOut, IsTruncated, IsValid, IsOccluded);
+           float DistanceFromCamera = 0;
+           bool IsInCameraView = CalcMinimumBoundingBox(*ActorItr, RenderComponent, BoxOut, DistanceFromCamera, IsTruncated, IsValid, IsOccluded);
            
            Actor->Occluded = static_cast<int>(IsOccluded);
            
            if (IsValid && IsInCameraView)
            {
-               Objects.Add(MakeTuple(BoxOut, 5.0f));
+               Objects.Add(MakeTuple(BoxOut, DistanceFromCamera));
+
+               UE_LOG(LogTemp, Error, TEXT("%s: Distance from camera view ==> %f"), *ActorItr->GetName(), DistanceFromCamera);
 
                float cx = ((BoxOut.Min.X + BoxOut.Max.X) / 2) / imgWidth;
                float cy = ((BoxOut.Min.Y + BoxOut.Max.Y) / 2) / imgHeight;
@@ -165,7 +168,7 @@ bool UDynamicsCommon::SaveLabelingFormat(USceneCaptureComponent2D *RenderCompone
     return false;
 }
 
-bool UDynamicsCommon::CalcMinimumBoundingBox(const AActor* Actor, USceneCaptureComponent2D *RenderComponent, FBox2D &BoxOut, bool &Truncated, bool &Valid, bool &Occluded)
+bool UDynamicsCommon::CalcMinimumBoundingBox(const AActor* Actor, USceneCaptureComponent2D *RenderComponent, FBox2D &BoxOut, float &DistanceFromCameraView, bool &Truncated, bool &Valid, bool &Occluded)
 {
     bool isCompletelyInView = true;
     Valid = true;
@@ -183,12 +186,16 @@ bool UDynamicsCommon::CalcMinimumBoundingBox(const AActor* Actor, USceneCaptureC
     Info.OrthoFarClipPlane = 1000;
     Info.bConstrainAspectRatio = true;
     
+    FTransform ViewPoint = RenderComponent->GetComponentTransform();
+    
     USkinnedMeshComponent *Mesh = Actor->FindComponentByClass<USkinnedMeshComponent>();
 
     // Skinned Mesh
     if (Mesh)
     {
         Occluded = !(Mesh->GetWorld()->GetTimeSeconds() - Mesh->LastRenderTimeOnScreen <= 0.2f);
+
+        DistanceFromCameraView = (ViewPoint.GetLocation() - Mesh->GetComponentLocation()).Size();
         
         TArray<FFinalSkinVertex> OutVertices;
         Mesh->GetCPUSkinnedVertices(OutVertices, 0);
@@ -203,6 +210,8 @@ bool UDynamicsCommon::CalcMinimumBoundingBox(const AActor* Actor, USceneCaptureC
         Valid = false;
 
         UStaticMeshComponent *StaticMeshComponent = Actor->FindComponentByClass<UStaticMeshComponent>();
+
+        DistanceFromCameraView = (ViewPoint.GetLocation() - StaticMeshComponent->GetComponentLocation()).Size();
 
         // Static Mesh
         if (StaticMeshComponent)

@@ -128,32 +128,23 @@ bool UDynamicsCommon::SaveLabelingFormat(USceneCaptureComponent2D *RenderCompone
        UDetectableActor *Actor = ActorItr->FindComponentByClass<UDetectableActor>();
 
        if (Actor)
-       {
-           USkinnedMeshComponent *Mesh = ActorItr->FindComponentByClass<USkinnedMeshComponent>();
-           
-           bool Occluded = !ActorItr->WasRecentlyRendered(0.01f);
-           
+       {   
            FBox2D BoxOut;
-           bool Truncated;
+           bool IsOccluded;
+           bool IsTruncated;
            bool IsValid;
-           bool IsInCameraView = CalcMinimumBoundingBox(*ActorItr, RenderComponent, BoxOut, Truncated, IsValid);
-
+           bool IsInCameraView = CalcMinimumBoundingBox(*ActorItr, RenderComponent, BoxOut, IsTruncated, IsValid, IsOccluded);
+           
+           Actor->Occluded = static_cast<int>(IsOccluded);
+           
            if (IsValid && IsInCameraView)
            {
                Objects.Add(MakeTuple(BoxOut, 5.0f));
-
-               Actor->Occluded = static_cast<int>(Occluded);
 
                float cx = ((BoxOut.Min.X + BoxOut.Max.X) / 2) / imgWidth;
                float cy = ((BoxOut.Min.Y + BoxOut.Max.Y) / 2) / imgHeight;
                float w = (BoxOut.Max.X - BoxOut.Min.X) / imgWidth;
                float h = (BoxOut.Max.Y - BoxOut.Min.Y) / imgHeight;
-               
-            //    UE_LOG(LogTemp, Error, TEXT("%s is occluded? %i"), *ActorItr->GetName(), Occluded);
-            //    if (Occluded)
-            //    {
-            //        UE_LOG(LogTemp, Error, TEXT("Extra check"));
-            //    }
                
                if (Format == EExportFormat::VE_YOLO)
                {
@@ -165,9 +156,9 @@ bool UDynamicsCommon::SaveLabelingFormat(USceneCaptureComponent2D *RenderCompone
                    XmlNext = (FXmlNode *)XmlNext->GetNextNode();
                    XmlNext->AppendChildNode(TEXT("name"), ActorItr->GetName());
                    XmlNext->AppendChildNode(TEXT("pose"), TEXT("Unknown"));
-                   XmlNext->AppendChildNode(TEXT("truncated"), Truncated ? TEXT("1") : TEXT("0"));
+                   XmlNext->AppendChildNode(TEXT("truncated"), IsTruncated ? TEXT("1") : TEXT("0"));
                    XmlNext->AppendChildNode(TEXT("difficult"), TEXT("0"));
-                   XmlNext->AppendChildNode(TEXT("occluded"), TEXT("0"));
+                   XmlNext->AppendChildNode(TEXT("occluded"), FString::FromInt(Actor->Occluded));
                    XmlNext->AppendChildNode(TEXT("bndbox"), TEXT(""));
                    FXmlNode *XmlBox = XmlNext->FindChildNode(TEXT("bndbox"));
                    XmlBox->AppendChildNode(TEXT("xmin"), FString::Printf(TEXT("%f"), BoxOut.Min.X));
@@ -200,7 +191,7 @@ bool UDynamicsCommon::SaveLabelingFormat(USceneCaptureComponent2D *RenderCompone
     return false;
 }
 
-bool UDynamicsCommon::CalcMinimumBoundingBox(const AActor* Actor, USceneCaptureComponent2D *RenderComponent, FBox2D &BoxOut, bool &Truncated, bool &Valid)
+bool UDynamicsCommon::CalcMinimumBoundingBox(const AActor* Actor, USceneCaptureComponent2D *RenderComponent, FBox2D &BoxOut, bool &Truncated, bool &Valid, bool &Occluded)
 {
     bool isCompletelyInView = true;
     Valid = true;
@@ -223,10 +214,12 @@ bool UDynamicsCommon::CalcMinimumBoundingBox(const AActor* Actor, USceneCaptureC
     // Skinned Mesh
     if (Mesh)
     {
+        Occluded = !(Mesh->GetWorld()->GetTimeSeconds() - Mesh->LastRenderTimeOnScreen <= 0.05f);
+        
         TArray<FFinalSkinVertex> OutVertices;
         Mesh->GetCPUSkinnedVertices(OutVertices, 0);
 
-        FTransform const MeshWorldTransform = Actor->GetRootComponent()->GetComponentTransform();
+        FTransform const MeshWorldTransform = Mesh->GetComponentTransform();
 
         for (FFinalSkinVertex &Vertex : OutVertices)
         {
@@ -248,7 +241,9 @@ bool UDynamicsCommon::CalcMinimumBoundingBox(const AActor* Actor, USceneCaptureC
                 FPositionVertexBuffer* VertexBuffer = &StaticMeshComponent->GetStaticMesh()->RenderData->LODResources[0].VertexBuffers.PositionVertexBuffer;
                 if (VertexBuffer)
                 {
-                    FTransform const MeshWorldTransform = Actor->GetRootComponent()->GetComponentTransform();
+                    Occluded = !(StaticMeshComponent->GetWorld()->GetTimeSeconds() - StaticMeshComponent->LastRenderTimeOnScreen <= 0.1f);
+                    
+                    FTransform const MeshWorldTransform = StaticMeshComponent->GetComponentTransform();
 
                     const int32 VertexCount = VertexBuffer->GetNumVertices();
                     

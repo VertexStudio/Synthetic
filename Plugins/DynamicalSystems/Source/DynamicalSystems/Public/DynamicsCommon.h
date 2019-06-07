@@ -4,6 +4,7 @@
 #include "EngineUtils.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "Kismet/KismetRenderingLibrary.h"
+#include "Components/PrimitiveComponent.h"
 #include "Components/SceneCaptureComponent2D.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "SceneView.h"
@@ -54,7 +55,7 @@ class DYNAMICALSYSTEMS_API UDynamicsCommon : public UBlueprintFunctionLibrary
     static bool SaveLabelingFormat(USceneCaptureComponent2D *RenderComponent, EExportFormat Format, FString FilePath = "/tmp/synthetic_data", FString FileName = "render");
 
     UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Math|Vector")
-    static bool CalcMinimumBoundingBox(const AActor* Actor, USceneCaptureComponent2D *RenderComponent, FBox2D &BoxOut, bool &Truncated, bool &Valid);
+    static bool CalcMinimumBoundingBox(const AActor* Actor, USceneCaptureComponent2D *RenderComponent, FBox2D &BoxOut, bool &Truncated, bool &Valid, bool &IsOccluded);
 
     UFUNCTION(BlueprintPure, Category = "File", meta = (Keywords = "ReadTxt"))
     static bool ReadTxt(FString FilePath, FString FileName, FString &OutputTxt);

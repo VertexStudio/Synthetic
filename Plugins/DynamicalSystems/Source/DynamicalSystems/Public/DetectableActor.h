@@ -23,9 +23,6 @@ public:
 	// Called every frame
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
-	bool Occluded;
-	bool Truncated;
-
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
 	FString ClassName;
 

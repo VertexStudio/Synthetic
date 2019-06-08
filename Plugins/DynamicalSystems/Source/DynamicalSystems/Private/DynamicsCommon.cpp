@@ -3,7 +3,9 @@
 #include "XmlParser/Public/XmlFile.h"
 
 struct FDetectableObject {
-      UDetectableActor DetectableActor;  
+      UDetectableActor* DetectableActor;
+      bool Occluded;
+      bool Truncated;
       FBox2D Box2D;
       float DistanceFromCameraView;
 };
@@ -110,16 +112,13 @@ bool UDynamicsCommon::SaveLabelingFormat(USceneCaptureComponent2D *RenderCompone
        if (Actor)
        {   
            FBox2D BoxOut;
-           bool IsOccluded;
            bool IsTruncated;
            bool IsValid;
            float DistanceFromCamera = 0;
-           bool IsInCameraView = CalcMinimumBoundingBox(*ActorItr, RenderComponent, BoxOut, DistanceFromCamera, IsTruncated, IsValid, IsOccluded);
+           bool IsInCameraView = CalcMinimumBoundingBox(*ActorItr, RenderComponent, BoxOut, DistanceFromCamera, IsTruncated, IsValid);
            
            if (IsValid && IsInCameraView)
-           {
-               UE_LOG(LogTemp, Error, TEXT("%s: Distance from camera view ==> %f"), *ActorItr->GetName(), DistanceFromCamera);
-               
+           {   
                if (Format == EExportFormat::VE_YOLO)
                {
                    float cx = ((BoxOut.Min.X + BoxOut.Max.X) / 2) / imgWidth;
@@ -133,8 +132,7 @@ bool UDynamicsCommon::SaveLabelingFormat(USceneCaptureComponent2D *RenderCompone
                } 
                else if(Format == EExportFormat::VE_PASCAL_VOC) 
                {
-                   Actor->Truncated = IsTruncated;
-                   FDetectableObject Object = { *Actor, BoxOut, DistanceFromCamera };
+                   FDetectableObject Object = { Actor, false, IsTruncated, BoxOut, DistanceFromCamera };
                    DetectedObjects.Add(Object);
                }
            }
@@ -143,65 +141,84 @@ bool UDynamicsCommon::SaveLabelingFormat(USceneCaptureComponent2D *RenderCompone
 
     if(Format == EExportFormat::VE_PASCAL_VOC)
     {
-        // Sort by distance
-        // DetectedObjects.Sort([](const FDetectableObject& LHS, const FDetectableObject& RHS) {
-        //     return LHS.DistanceFromCameraView < RHS.DistanceFromCameraView;
-        // });
-
         for (size_t i = 0; i < DetectedObjects.Num(); i++)
         {
             for (size_t j = 0; j < DetectedObjects.Num(); j++)
             {
-                // isn't declared as occluded and intersects?
-                if (!DetectedObjects[i].DetectableActor.Occluded && DetectedObjects[i].Box2D.Intersect(DetectedObjects[j].Box2D))
+                // avoid comparing with itself
+                if (i == j)
                 {
-                    // is completely inside?
+                    continue;
+                }
+
+                // if marked as occluded skip checks
+                if (DetectedObjects[i].Occluded)
+                {
+                    continue;
+                }
+                
+                // intersects?
+                if (DetectedObjects[i].Box2D.Intersect(DetectedObjects[j].Box2D))
+                {
+                    bool isBehind = DetectedObjects[i].DistanceFromCameraView > DetectedObjects[j].DistanceFromCameraView;
+
+                    // is comparison box completely inside?
                     if (DetectedObjects[i].Box2D.IsInside(DetectedObjects[j].Box2D))
                     {
-                        bool isBehind = DetectedObjects[i].DistanceFromCameraView > DetectedObjects[j].DistanceFromCameraView;
+                        // is comparison box behind?
+                        if (!isBehind)
+                        {
+                            DetectedObjects[j].Occluded = true;
+                            continue;
+                        }
+                    }
 
+                    // is completely inside?
+                    if (DetectedObjects[j].Box2D.IsInside(DetectedObjects[i].Box2D))
+                    {
                         // is behind?
                         if (isBehind)
                         {
-                            DetectedObjects[i].DetectableActor.Occluded = true;
-                        }
-                        // don't consider it in next iteration
-                        else
-                        {
-                            DetectedObjects[j].DetectableActor.Occluded = true;
+                            DetectedObjects[i].Occluded = true;
                         }
                     }
                     // how many points intersect?
                     else 
                     {
-                        int8_t points = 0;
+                        uint8_t points = 0;
 
-                        if (DetectedObjects[i].Box2D.IsInside(DetectedObjects[j].Box2D.Max))
+                        if (DetectedObjects[j].Box2D.IsInside(DetectedObjects[i].Box2D.Max))
                         {
                             points++;
                         }
-                        if (DetectedObjects[i].Box2D.IsInside(DetectedObjects[j].Box2D.Min))
+                        if (DetectedObjects[j].Box2D.IsInside(DetectedObjects[i].Box2D.Min))
                         {
                             points++;
                         }
-                        if (DetectedObjects[i].Box2D.IsInside(FVector2D(DetectedObjects[j].Box2D.Min.X, DetectedObjects[j].Box2D.Max.Y)))
+                        if (DetectedObjects[j].Box2D.IsInside(FVector2D(DetectedObjects[i].Box2D.Min.X, DetectedObjects[i].Box2D.Max.Y)))
                         {
                             points++;
                         }
-                        if (DetectedObjects[i].Box2D.IsInside(FVector2D(DetectedObjects[j].Box2D.Max.X, DetectedObjects[j].Box2D.Min.Y)))
+                        if (DetectedObjects[j].Box2D.IsInside(FVector2D(DetectedObjects[i].Box2D.Max.X, DetectedObjects[i].Box2D.Min.Y)))
                         {
                             points++;
                         }
 
-                        // if at least 3 points intersect: occluded
+                        // if at least 3 points intersect and is behind: occluded
                         if (points >= 3)
                         {
-                            DetectedObjects[i].DetectableActor.Occluded = true;
+                            if (isBehind)
+                            {
+                                DetectedObjects[i].Occluded = true;
+                            }
                         }
-                        // if 1 or 2 points intersect: truncated
+                        // if 1 or 2 points intersect and is behind: truncated
                         else if (points >= 1 && points <= 2)
                         {
-                            DetectedObjects[i].DetectableActor.Truncated = true;
+                            if (isBehind)
+                            {
+                                DetectedObjects[i].Truncated = true;
+                            }
                         }
                     }
                 }
@@ -212,11 +229,11 @@ bool UDynamicsCommon::SaveLabelingFormat(USceneCaptureComponent2D *RenderCompone
         {
             XmlRoot->AppendChildNode(TEXT("object"), "");
             XmlNext = (FXmlNode *)XmlNext->GetNextNode();
-            XmlNext->AppendChildNode(TEXT("name"), Obj.DetectableActor.ClassName);
-            XmlNext->AppendChildNode(TEXT("pose"), Obj.DetectableActor.Pose);
-            XmlNext->AppendChildNode(TEXT("truncated"), Obj.DetectableActor.Truncated ? TEXT("1") : TEXT("0"));
-            XmlNext->AppendChildNode(TEXT("difficult"), FString::FromInt(Obj.DetectableActor.Difficult));
-            XmlNext->AppendChildNode(TEXT("occluded"), FString::FromInt(static_cast<int>(Obj.DetectableActor.Occluded)));
+            XmlNext->AppendChildNode(TEXT("name"), Obj.DetectableActor->ClassName);
+            XmlNext->AppendChildNode(TEXT("pose"), Obj.DetectableActor->Pose);
+            XmlNext->AppendChildNode(TEXT("truncated"), Obj.Truncated ? TEXT("1") : TEXT("0"));
+            XmlNext->AppendChildNode(TEXT("difficult"), FString::FromInt(Obj.DetectableActor->Difficult));
+            XmlNext->AppendChildNode(TEXT("occluded"), FString::FromInt(static_cast<int>(Obj.Occluded)));
             XmlNext->AppendChildNode(TEXT("bndbox"), TEXT(""));
             FXmlNode *XmlBox = XmlNext->FindChildNode(TEXT("bndbox"));
             XmlBox->AppendChildNode(TEXT("xmin"), FString::Printf(TEXT("%f"), Obj.Box2D.Min.X));
@@ -249,7 +266,7 @@ bool UDynamicsCommon::SaveLabelingFormat(USceneCaptureComponent2D *RenderCompone
     return false;
 }
 
-bool UDynamicsCommon::CalcMinimumBoundingBox(const AActor* Actor, USceneCaptureComponent2D *RenderComponent, FBox2D &BoxOut, float &DistanceFromCameraView, bool &Truncated, bool &Valid, bool &Occluded)
+bool UDynamicsCommon::CalcMinimumBoundingBox(const AActor* Actor, USceneCaptureComponent2D *RenderComponent, FBox2D &BoxOut, float &DistanceFromCameraView, bool &Truncated, bool &Valid)
 {
     bool isCompletelyInView = true;
     Valid = true;
@@ -274,8 +291,6 @@ bool UDynamicsCommon::CalcMinimumBoundingBox(const AActor* Actor, USceneCaptureC
     // Skinned Mesh
     if (Mesh)
     {
-        Occluded = !(Mesh->GetWorld()->GetTimeSeconds() - Mesh->LastRenderTimeOnScreen <= 0.2f);
-
         DistanceFromCameraView = ViewPoint.InverseTransformPosition(Mesh->GetComponentLocation()).X;
         
         TArray<FFinalSkinVertex> OutVertices;
@@ -306,9 +321,7 @@ bool UDynamicsCommon::CalcMinimumBoundingBox(const AActor* Actor, USceneCaptureC
             {
                 FPositionVertexBuffer* VertexBuffer = &StaticMeshComponent->GetStaticMesh()->RenderData->LODResources[0].VertexBuffers.PositionVertexBuffer;
                 if (VertexBuffer)
-                {
-                    Occluded = !(StaticMeshComponent->GetWorld()->GetTimeSeconds() - StaticMeshComponent->LastRenderTimeOnScreen <= 0.1f);
-                    
+                {   
                     FTransform const MeshWorldTransform = StaticMeshComponent->GetComponentTransform();
 
                     const int32 VertexCount = VertexBuffer->GetNumVertices();

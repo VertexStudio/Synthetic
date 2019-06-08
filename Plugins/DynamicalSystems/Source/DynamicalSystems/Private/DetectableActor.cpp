@@ -7,8 +7,6 @@ UDetectableActor::UDetectableActor()
 	// off to improve performance if you don't need them.
 	PrimaryComponentTick.bCanEverTick = true;
 
-	Occluded = false;
-	Truncated = false;
 	ClassName = "Person";
 	Pose = "Unknown";
 	Difficult = 0;

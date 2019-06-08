@@ -55,7 +55,7 @@ class DYNAMICALSYSTEMS_API UDynamicsCommon : public UBlueprintFunctionLibrary
     static bool SaveLabelingFormat(USceneCaptureComponent2D *RenderComponent, EExportFormat Format, FString FilePath = "/tmp/synthetic_data", FString FileName = "render");
 
     UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Math|Vector")
-    static bool CalcMinimumBoundingBox(const AActor* Actor, USceneCaptureComponent2D *RenderComponent, FBox2D &BoxOut, float &DistanceFromCameraView, bool &Truncated, bool &Valid, bool &IsOccluded);
+    static bool CalcMinimumBoundingBox(const AActor* Actor, USceneCaptureComponent2D *RenderComponent, FBox2D &BoxOut, float &DistanceFromCameraView, bool &Truncated, bool &Valid);
 
     UFUNCTION(BlueprintPure, Category = "File", meta = (Keywords = "ReadTxt"))
     static bool ReadTxt(FString FilePath, FString FileName, FString &OutputTxt);

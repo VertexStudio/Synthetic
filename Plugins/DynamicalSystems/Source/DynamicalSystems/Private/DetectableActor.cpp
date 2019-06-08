@@ -1,8 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
-
 #include "DetectableActor.h"
-
 
 // Sets default values for this component's properties
 UDetectableActor::UDetectableActor()
@@ -11,7 +7,8 @@ UDetectableActor::UDetectableActor()
 	// off to improve performance if you don't need them.
 	PrimaryComponentTick.bCanEverTick = true;
 
-	Occluded = 0;
+	Occluded = false;
+	Truncated = false;
 	ClassName = "Person";
 	Pose = "Unknown";
 	Difficult = 0;

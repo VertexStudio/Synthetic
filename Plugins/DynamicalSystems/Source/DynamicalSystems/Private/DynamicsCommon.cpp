@@ -2,6 +2,12 @@
 #include "DetectableActor.h"
 #include "XmlParser/Public/XmlFile.h"
 
+struct FDetectableObject {
+      UDetectableActor DetectableActor;  
+      FBox2D Box2D;
+      float DistanceFromCameraView;
+};
+
 float UDynamicsCommon::MeanOfFloatArray(const TArray<float> &Samples)
 {
     float T = 0.0f;
@@ -73,7 +79,7 @@ bool UDynamicsCommon::SaveLabelingFormat(USceneCaptureComponent2D *RenderCompone
 {
     uint32 imgWidth = RenderComponent->TextureTarget->SizeX;
     uint32 imgHeight = RenderComponent->TextureTarget->SizeY;
-    TArray<TTuple<FBox2D, float>> Objects;
+    TArray<FDetectableObject> DetectedObjects;
     FString yoloOutput;
 
     const FString XmlPath = FPaths::Combine(FilePath, FileName + ".xml");
@@ -110,50 +116,125 @@ bool UDynamicsCommon::SaveLabelingFormat(USceneCaptureComponent2D *RenderCompone
            float DistanceFromCamera = 0;
            bool IsInCameraView = CalcMinimumBoundingBox(*ActorItr, RenderComponent, BoxOut, DistanceFromCamera, IsTruncated, IsValid, IsOccluded);
            
-           Actor->Occluded = static_cast<int>(IsOccluded);
-           
            if (IsValid && IsInCameraView)
            {
-               Objects.Add(MakeTuple(BoxOut, DistanceFromCamera));
-
                UE_LOG(LogTemp, Error, TEXT("%s: Distance from camera view ==> %f"), *ActorItr->GetName(), DistanceFromCamera);
-
-               float cx = ((BoxOut.Min.X + BoxOut.Max.X) / 2) / imgWidth;
-               float cy = ((BoxOut.Min.Y + BoxOut.Max.Y) / 2) / imgHeight;
-               float w = (BoxOut.Max.X - BoxOut.Min.X) / imgWidth;
-               float h = (BoxOut.Max.Y - BoxOut.Min.Y) / imgHeight;
                
                if (Format == EExportFormat::VE_YOLO)
                {
+                   float cx = ((BoxOut.Min.X + BoxOut.Max.X) / 2) / imgWidth;
+                   float cy = ((BoxOut.Min.Y + BoxOut.Max.Y) / 2) / imgHeight;
+                   float w = (BoxOut.Max.X - BoxOut.Min.X) / imgWidth;
+                   float h = (BoxOut.Max.Y - BoxOut.Min.Y) / imgHeight;
+
                    // YOLOv3 Format: {CLASS} {CX} {CY} {W} {H}, normalized [0,1]
                    yoloOutput += Actor->ClassName + " " +  FString::SanitizeFloat(cx) + " " + FString::SanitizeFloat(cy) + " "
                                 + FString::SanitizeFloat(w) + " " + FString::SanitizeFloat(h) + "\n";
-               } else if(Format == EExportFormat::VE_PASCAL_VOC) {
-                   XmlRoot->AppendChildNode(TEXT("object"), "");
-                   XmlNext = (FXmlNode *)XmlNext->GetNextNode();
-                   XmlNext->AppendChildNode(TEXT("name"), ActorItr->GetName());
-                   XmlNext->AppendChildNode(TEXT("pose"), TEXT("Unknown"));
-                   XmlNext->AppendChildNode(TEXT("truncated"), IsTruncated ? TEXT("1") : TEXT("0"));
-                   XmlNext->AppendChildNode(TEXT("difficult"), TEXT("0"));
-                   XmlNext->AppendChildNode(TEXT("occluded"), FString::FromInt(Actor->Occluded));
-                   XmlNext->AppendChildNode(TEXT("bndbox"), TEXT(""));
-                   FXmlNode *XmlBox = XmlNext->FindChildNode(TEXT("bndbox"));
-                   XmlBox->AppendChildNode(TEXT("xmin"), FString::Printf(TEXT("%f"), BoxOut.Min.X));
-                   XmlBox->AppendChildNode(TEXT("xmax"), FString::Printf(TEXT("%f"), BoxOut.Max.X));
-                   XmlBox->AppendChildNode(TEXT("ymin"), FString::Printf(TEXT("%f"), BoxOut.Min.Y));
-                   XmlBox->AppendChildNode(TEXT("ymax"), FString::Printf(TEXT("%f"), BoxOut.Max.Y));
+               } 
+               else if(Format == EExportFormat::VE_PASCAL_VOC) 
+               {
+                   Actor->Truncated = IsTruncated;
+                   FDetectableObject Object = { *Actor, BoxOut, DistanceFromCamera };
+                   DetectedObjects.Add(Object);
                }
            }
        }
     }
 
+    if(Format == EExportFormat::VE_PASCAL_VOC)
+    {
+        // Sort by distance
+        // DetectedObjects.Sort([](const FDetectableObject& LHS, const FDetectableObject& RHS) {
+        //     return LHS.DistanceFromCameraView < RHS.DistanceFromCameraView;
+        // });
+
+        for (size_t i = 0; i < DetectedObjects.Num(); i++)
+        {
+            for (size_t j = 0; j < DetectedObjects.Num(); j++)
+            {
+                // isn't declared as occluded and intersects?
+                if (!DetectedObjects[i].DetectableActor.Occluded && DetectedObjects[i].Box2D.Intersect(DetectedObjects[j].Box2D))
+                {
+                    // is completely inside?
+                    if (DetectedObjects[i].Box2D.IsInside(DetectedObjects[j].Box2D))
+                    {
+                        bool isBehind = DetectedObjects[i].DistanceFromCameraView > DetectedObjects[j].DistanceFromCameraView;
+
+                        // is behind?
+                        if (isBehind)
+                        {
+                            DetectedObjects[i].DetectableActor.Occluded = true;
+                        }
+                        // don't consider it in next iteration
+                        else
+                        {
+                            DetectedObjects[j].DetectableActor.Occluded = true;
+                        }
+                    }
+                    // how many points intersect?
+                    else 
+                    {
+                        int8_t points = 0;
+
+                        if (DetectedObjects[i].Box2D.IsInside(DetectedObjects[j].Box2D.Max))
+                        {
+                            points++;
+                        }
+                        if (DetectedObjects[i].Box2D.IsInside(DetectedObjects[j].Box2D.Min))
+                        {
+                            points++;
+                        }
+                        if (DetectedObjects[i].Box2D.IsInside(FVector2D(DetectedObjects[j].Box2D.Min.X, DetectedObjects[j].Box2D.Max.Y)))
+                        {
+                            points++;
+                        }
+                        if (DetectedObjects[i].Box2D.IsInside(FVector2D(DetectedObjects[j].Box2D.Max.X, DetectedObjects[j].Box2D.Min.Y)))
+                        {
+                            points++;
+                        }
+
+                        // if at least 3 points intersect: occluded
+                        if (points >= 3)
+                        {
+                            DetectedObjects[i].DetectableActor.Occluded = true;
+                        }
+                        // if 1 or 2 points intersect: truncated
+                        else if (points >= 1 && points <= 2)
+                        {
+                            DetectedObjects[i].DetectableActor.Truncated = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        for (FDetectableObject &Obj : DetectedObjects)
+        {
+            XmlRoot->AppendChildNode(TEXT("object"), "");
+            XmlNext = (FXmlNode *)XmlNext->GetNextNode();
+            XmlNext->AppendChildNode(TEXT("name"), Obj.DetectableActor.ClassName);
+            XmlNext->AppendChildNode(TEXT("pose"), Obj.DetectableActor.Pose);
+            XmlNext->AppendChildNode(TEXT("truncated"), Obj.DetectableActor.Truncated ? TEXT("1") : TEXT("0"));
+            XmlNext->AppendChildNode(TEXT("difficult"), FString::FromInt(Obj.DetectableActor.Difficult));
+            XmlNext->AppendChildNode(TEXT("occluded"), FString::FromInt(static_cast<int>(Obj.DetectableActor.Occluded)));
+            XmlNext->AppendChildNode(TEXT("bndbox"), TEXT(""));
+            FXmlNode *XmlBox = XmlNext->FindChildNode(TEXT("bndbox"));
+            XmlBox->AppendChildNode(TEXT("xmin"), FString::Printf(TEXT("%f"), Obj.Box2D.Min.X));
+            XmlBox->AppendChildNode(TEXT("xmax"), FString::Printf(TEXT("%f"), Obj.Box2D.Max.X));
+            XmlBox->AppendChildNode(TEXT("ymin"), FString::Printf(TEXT("%f"), Obj.Box2D.Min.Y));
+            XmlBox->AppendChildNode(TEXT("ymax"), FString::Printf(TEXT("%f"), Obj.Box2D.Max.Y));
+        }
+    }
+
+    // Save render capture and format file
     RenderComponent->CaptureScene();
     UKismetRenderingLibrary::ExportRenderTarget(RenderComponent->GetWorld(), RenderComponent->TextureTarget, FilePath, FileName + ".png");
     
     if (Format == EExportFormat::VE_YOLO)
     {
         return WriteTxt(yoloOutput, FilePath, FileName + ".txt");
-    } else
+    } 
+    else if(Format == EExportFormat::VE_PASCAL_VOC) 
     {
         if (!Xml->Save(XmlPath))
         {
@@ -195,7 +276,7 @@ bool UDynamicsCommon::CalcMinimumBoundingBox(const AActor* Actor, USceneCaptureC
     {
         Occluded = !(Mesh->GetWorld()->GetTimeSeconds() - Mesh->LastRenderTimeOnScreen <= 0.2f);
 
-        DistanceFromCameraView = (ViewPoint.GetLocation() - Mesh->GetComponentLocation()).Size();
+        DistanceFromCameraView = ViewPoint.InverseTransformPosition(Mesh->GetComponentLocation()).X;
         
         TArray<FFinalSkinVertex> OutVertices;
         Mesh->GetCPUSkinnedVertices(OutVertices, 0);
@@ -206,12 +287,14 @@ bool UDynamicsCommon::CalcMinimumBoundingBox(const AActor* Actor, USceneCaptureC
         {
             Points.Add(MeshWorldTransform.TransformPosition(Vertex.Position));
         }
-    } else {
+    } 
+    else 
+    {
         Valid = false;
 
         UStaticMeshComponent *StaticMeshComponent = Actor->FindComponentByClass<UStaticMeshComponent>();
 
-        DistanceFromCameraView = (ViewPoint.GetLocation() - StaticMeshComponent->GetComponentLocation()).Size();
+        DistanceFromCameraView = ViewPoint.InverseTransformPosition(StaticMeshComponent->GetComponentLocation()).X;
 
         // Static Mesh
         if (StaticMeshComponent)
@@ -239,12 +322,14 @@ bool UDynamicsCommon::CalcMinimumBoundingBox(const AActor* Actor, USceneCaptureC
                     {
                         Points.Add(MeshWorldTransform.TransformPosition(VertexBuffer->VertexPosition(Index)));
                     }
-                } else
+                } 
+                else
                 {
                     Valid = false;
                 }     
             }
-        } else
+        } 
+        else
         {
             Valid = false;
         }

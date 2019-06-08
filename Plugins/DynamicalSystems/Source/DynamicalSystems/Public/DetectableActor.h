@@ -6,7 +6,6 @@
 #include "Components/ActorComponent.h"
 #include "DetectableActor.generated.h"
 
-
 UCLASS( ClassGroup=(Custom), meta=(BlueprintSpawnableComponent) )
 class DYNAMICALSYSTEMS_API UDetectableActor : public UActorComponent
 {
@@ -24,8 +23,9 @@ public:
 	// Called every frame
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
-	int Occluded;
-	
+	bool Occluded;
+	bool Truncated;
+
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
 	FString ClassName;
 

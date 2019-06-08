@@ -187,23 +187,43 @@ bool UDynamicsCommon::SaveLabelingFormat(USceneCaptureComponent2D *RenderCompone
                     {
                         uint8_t points = 0;
 
-                        if (DetectedObjects[j].Box2D.IsInside(DetectedObjects[i].Box2D.Max))
+                        if (DetectedObjects[i].Box2D.IsInside(DetectedObjects[j].Box2D.Max))
                         {
                             points++;
                         }
-                        if (DetectedObjects[j].Box2D.IsInside(DetectedObjects[i].Box2D.Min))
+                        if (DetectedObjects[i].Box2D.IsInside(DetectedObjects[j].Box2D.Min))
                         {
                             points++;
                         }
-                        if (DetectedObjects[j].Box2D.IsInside(FVector2D(DetectedObjects[i].Box2D.Min.X, DetectedObjects[i].Box2D.Max.Y)))
+                        if (DetectedObjects[i].Box2D.IsInside(FVector2D(DetectedObjects[j].Box2D.Min.X, DetectedObjects[j].Box2D.Max.Y)))
                         {
                             points++;
                         }
-                        if (DetectedObjects[j].Box2D.IsInside(FVector2D(DetectedObjects[i].Box2D.Max.X, DetectedObjects[i].Box2D.Min.Y)))
+                        if (DetectedObjects[i].Box2D.IsInside(FVector2D(DetectedObjects[j].Box2D.Max.X, DetectedObjects[j].Box2D.Min.Y)))
                         {
                             points++;
                         }
 
+                        if (points == 0)
+                        {
+                            if (DetectedObjects[j].Box2D.IsInside(DetectedObjects[i].Box2D.Max))
+                            {
+                                points++;
+                            }
+                            if (DetectedObjects[j].Box2D.IsInside(DetectedObjects[i].Box2D.Min))
+                            {
+                                points++;
+                            }
+                            if (DetectedObjects[j].Box2D.IsInside(FVector2D(DetectedObjects[i].Box2D.Min.X, DetectedObjects[i].Box2D.Max.Y)))
+                            {
+                                points++;
+                            }
+                            if (DetectedObjects[j].Box2D.IsInside(FVector2D(DetectedObjects[i].Box2D.Max.X, DetectedObjects[i].Box2D.Min.Y)))
+                            {
+                                points++;
+                            }
+                        }
+                        
                         // if at least 3 points intersect and is behind: occluded
                         if (points >= 3)
                         {

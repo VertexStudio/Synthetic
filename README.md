@@ -1,3 +1,13 @@
+# Synthetic
+Generating synthetic data, using PASCAL VOC and YOLO annotation formats
+
+<p align="center"> 
+    <img src="docs/dc.gif" width="480">
+</p>
+<p align="center"> 
+    <img src="docs/df.gif" width="480">
+</p>
+
 ## Setup Instructions
 
 ### Install UnrealEngine
